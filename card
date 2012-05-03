@@ -92,7 +92,7 @@ if ( $cmd =~ /in/ ) {
                 $targ = $targ->{$date};
 
             } elsif ( $grp eq 'project' ) {
-                my ($prj) = grep { $_ =~ /(\+activimetrics|\+ctmlabs|\+personal)/i } @{$c->{proj}};
+                my ($prj) = grep { $_ =~ /(\+p\/[^\s]+)/i } @{$c->{proj}};
                 $prj = '<unknown>' if ( not defined $prj );
 
                 $prj = lc($prj);
