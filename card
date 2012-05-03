@@ -11,7 +11,16 @@ use feature ':5.10';
 #    todo.sh card in <num>   -- start tracking time on item <num>
 #    todo.sh card out        -- stop tracking time (card out of item <num>)
 #    todo.sh card what       -- print the current 'active' task, shortcut 'wh'
-#    todo.sh report [groups] -- report time with optionally specified groupings
+#    todo.sh report [--groups=groups] [filters...] -- report time with optionally specified groupings
+
+my $verbose = 0;
+my @groupings = ( 'indate' );  # default
+my $res = GetOptions(
+    'verbose|v' => sub { $verbose++ },
+    'groupings=s' => sub { @groupings = split (/,/, $_[1] ) }
+    );
+
+say "GROUPINGS ARE ".join(", ",@groupings) if $verbose;
 
 my $tododir = $ENV{'TODO_DIR'} || die "TODOTXT_DIR must be specified on in the environment";
 
@@ -21,7 +30,7 @@ my $cmd = shift @ARGV     || pod2usage(1);
 
 # get all the card data
 my $cardf = io("$tododir/card.dat");
-my @card = slurp_data(io($cardf));
+my @card = slurp_data(io($cardf), @ARGV);
 
 my $active = get_active_task();
 
@@ -71,10 +80,6 @@ if ( $cmd =~ /in/ ) {
 } elsif ( $cmd =~ /(report|rep)/ ) {
     # generate a report, optionally using groupings
 
-    
-    my @groupings = @ARGV;
-    @groupings = ( 'indate' ) if not @groupings;
-    
     # loop over @card, grouping first by date, then by activity
     my $groups = {};
     foreach my $c ( @card ) {
@@ -86,14 +91,14 @@ if ( $cmd =~ /in/ ) {
                 $targ->{$date} = {} if ( not defined $targ->{$date} );
                 $targ = $targ->{$date};
 
-            } elsif ( $grp eq 'business' ) {
-                my ($bus) = grep { $_ =~ /(\+activimetrics|\+ctmlabs|\+personal)/i } @{$c->{proj}};
-                $bus = '<unknown>' if ( not defined $bus );
+            } elsif ( $grp eq 'project' ) {
+                my ($prj) = grep { $_ =~ /(\+activimetrics|\+ctmlabs|\+personal)/i } @{$c->{proj}};
+                $prj = '<unknown>' if ( not defined $prj );
 
-                $bus = lc($bus);
+                $prj = lc($prj);
                 
-                $targ->{$bus} = {} if ( not defined $targ->{$bus} );
-                $targ = $targ->{$bus};
+                $targ->{$prj} = {} if ( not defined $targ->{$prj} );
+                $targ = $targ->{$prj};
             }
 
         }
@@ -113,13 +118,20 @@ sub get_active_task() {
     return undef;  # not doing anything
 }
 
-sub slurp_data($) {
-    my ( $file ) = shift;
+sub slurp_data {
+    my ( $file, @filters ) = @_;
+
+    die "You must pass an io::file to slurp" if not defined $file;
 
     # read all lines, removing blanks, and return as a list
     return 
         map { parse_task( $_ ) }
-        grep { not /^\s*$/ } 
+        grep { my $d = $_;
+               if ( not @filters ) { 1; }
+               else { 
+                   grep { $d =~ /$_/i } @filters;
+               }
+        } grep { not /^\s*$/ } 
         $file->chomp->slurp;
 }
 
@@ -168,7 +180,7 @@ sub get_todo_line {
     die "No line number passed to get_todo_line"
         if ( not defined $linenum );
 
-    my @todo = slurp_data(io("$tododir/todo.txt"));
+    my @todo = slurp_data(io("$tododir/todo.txt"), @ARGV);
 
     my $lineidx = $linenum - 1;
     die "Specified line number $linenum is out of range [1..".scalar(@todo)."]"
