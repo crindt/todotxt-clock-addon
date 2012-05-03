@@ -1,0 +1,245 @@
+#!/usr/bin/perl
+
+use Getopt::Long;
+use IO::All;
+use Date::Format;
+use Date::Parse;
+use TryCatch;
+use feature ':5.10';
+
+# general syntax
+#    todo.sh card in <num>   -- start tracking time on item <num>
+#    todo.sh card out        -- stop tracking time (card out of item <num>)
+#    todo.sh card what       -- print the current 'active' task, shortcut 'wh'
+#    todo.sh report [groups] -- report time with optionally specified groupings
+
+my $tododir = $ENV{'TODO_DIR'} || die "TODOTXT_DIR must be specified on in the environment";
+
+my $cmdname = shift @ARGV || die 'Invalid program state: cmdname not specified';
+my $cmd = shift @ARGV     || pod2usage(1);
+
+
+# get all the card data
+my $cardf = io("$tododir/card.dat");
+my @card = slurp_data(io($cardf));
+
+my $active = get_active_task();
+
+if ( $cmd =~ /in/ ) {
+    my $linenum = shift @ARGV || pod2usage(1);
+
+    my $line;
+    try {
+        $line = get_todo_line($linenum);
+
+        if ( not $active ) {
+            # if we're not active, simply append a new entry
+            cardin( $line );
+
+        } else {
+            # we're active
+
+            if ( $active->{todotxtline} eq $line->{todotxtline} ) {
+                # already doing requested
+                warn "You are already carded in to $line->{todotxtline}";
+                
+            } else {
+                # card out of active and card in to $line
+                cardout( $active );
+                cardin( $line );
+            }
+        }
+
+    } catch ( $err ) {
+        say "Caught exception punching in line $linenum:\n\t$err";
+        exit(1);
+    }
+
+} elsif ( $cmd =~ /out/ ) {
+    try {
+        cardout( $active );
+    } catch ( $err ) {
+        say "Caught exception punching out:\n\t$err";
+        exit(1);
+    }
+} elsif ( $cmd =~ /(what|wh)/ ) {
+    if ( $active ) {
+        say "The active task for ".spent_time($active)." minutes is:\n\t $active->{todotxtline}";
+    } else {
+        say "No current task is active";
+    }
+} elsif ( $cmd =~ /(report|rep)/ ) {
+    # generate a report, optionally using groupings
+
+    
+    my @groupings = @ARGV;
+    @groupings = ( 'indate' ) if not @groupings;
+    
+    # loop over @card, grouping first by date, then by activity
+    my $groups = {};
+    foreach my $c ( @card ) {
+        my $targ = $groups;
+        foreach my $grp ( @groupings ) {
+            if ( $grp eq 'indate' ) { 
+                my ($date) = $c->{cardin} =~ /^(\d{8})T\d{6}$/;
+                die "Couldn't identify card-in date for '$c->{todotxtline}'" if not $date;
+                $targ->{$date} = {} if ( not defined $targ->{$date} );
+                $targ = $targ->{$date};
+
+            } elsif ( $grp eq 'business' ) {
+                my ($bus) = grep { $_ =~ /(\+activimetrics|\+ctmlabs|\+personal)/i } @{$c->{proj}};
+                $bus = '<unknown>' if ( not defined $bus );
+
+                $bus = lc($bus);
+                
+                $targ->{$bus} = {} if ( not defined $targ->{$bus} );
+                $targ = $targ->{$bus};
+            }
+
+        }
+        push @{$targ->{$c->{todotxtline}}}, $c;
+    }
+
+    say_group_sums( $groups );
+
+    1;
+}
+
+sub get_active_task() {
+    return undef if not @card;  # nothing in the card file
+
+    return $card[-1] if not defined( $card[-1]->{cardout} );
+
+    return undef;  # not doing anything
+}
+
+sub slurp_data($) {
+    my ( $file ) = shift;
+
+    # read all lines, removing blanks, and return as a list
+    return 
+        map { parse_task( $_ ) }
+        grep { not /^\s*$/ } 
+        $file->chomp->slurp;
+}
+
+sub parse_task($) {
+    my ( $task ) = shift || die "Must specify task (string) to parse";
+
+    my ( $todotxtline,
+         $oDone, $oDonetag, $done, $oEnd, $end,
+         $oPri, $pri,
+         $oStart, $start,
+         $detail,
+         $oCardin, $cardin,
+         $oCardout, $cardout
+        ) =
+        $task =~ m/^
+                   (
+                   (((x)\s)\s*((\d{4}-\d{2}-\d{2})\s)?)?  # opt done, with or without date
+                   (\(([A-Z])\)\s)?                  # opt priority
+                   ((\d{4}-\d{2}-\d{2})\s)?          # opt start date
+                   (.*?)                             # detail
+                   )
+                   (\t(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt card in
+                   (\s(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt card out
+                  $/x;
+    my $tasko = {
+        todotxtline => $todotxtline,
+        line => $task,
+        detail => $detail };
+    $tasko->{done} = $done if $done;
+    $tasko->{start} = $start if $start;
+    $tasko->{end}   = $end if $end;
+    $tasko->{pri}   = $pri if $pri;
+    $tasko->{cardin} = $cardin if $cardin;
+    $tasko->{cardout} = $cardout if $cardout;
+
+    push @{$tasko->{proj}}, $detail =~ /(\+[^\s]+)/g;
+    push @{$tasko->{context}}, $detail =~ /(\@[^\s]+)/g;
+
+    return $tasko;
+}
+
+sub get_todo_line {
+    my ( $linenum ) = @_;
+
+    # verify conditions
+    die "No line number passed to get_todo_line"
+        if ( not defined $linenum );
+
+    my @todo = slurp_data(io("$tododir/todo.txt"));
+
+    my $lineidx = $linenum - 1;
+    die "Specified line number $linenum is out of range [1..".scalar(@todo)."]"
+        if ( $lineidx < 0 || $lineidx >= scalar( @todo ) );
+    
+    return $todo[$lineidx];
+}
+
+sub cardout($) {
+    my ( $activeline ) = shift;
+    
+    die "Not currently carded into any task" if not $activeline;
+    
+    say "Carding out of '$active->{todotxtline}'";
+    
+    $cardf << "\t".time2str("%Y%m%dT%H%M%S", time);
+}
+
+sub cardin {
+    my ( $line ) = shift;
+    
+    say "Carding into '$line->{todotxtline}'";
+    
+    "\n$line->{line}\t".time2str("%Y%m%dT%H%M%S", time) >> $cardf;
+}
+
+sub spent_time( $ ) {
+    my ( $task ) = shift;
+
+    die "Can't compute spent time without a card in" if not $task->{cardin};
+
+    my $cardint  = str2time( $task->{cardin} );
+    my $cardoutt = str2time( $task->{cardout} || time2str( "%c", time ) );
+
+    return int(($cardoutt - $cardint)/60);  # minutes
+}
+
+sub say_group_sums {
+    my ( $o, $level ) = ( shift, shift || 0 );
+    #my $thisindent = $indent . '   ';
+    my $indent;
+    foreach my $l ( 1..$level ) { $indent .= '   ' };
+    my $thisindent = $indent . '   ';
+
+
+    die "Groups to summarize not stored as hash" if ref $o ne 'HASH';
+
+    my $sumtotal = 0;
+    my $total = 0;
+    foreach my $gk ( sort { $a <=> $b } keys %{$o} ) {
+        my $oo = $o->{$gk};
+#        print STDERR "PROCESSING KEY $gk\n";
+        if ( ref $oo eq 'ARRAY' ) {
+            # A list of matching tasks for this group...
+            $total = 0;
+            foreach my $t ( @{$oo} ) {
+                $total += spent_time( $t );
+                #say sprintf "$thisindent%5d: $t->{todotxtline}", $total;
+            }
+            say sprintf "$thisindent%5d: $gk", $total;            
+            $sumtotal += $total;
+
+        } elsif ( ref $oo eq 'HASH' ) {
+            # we have a subgrouping
+            say "\n$indent$gk:";
+            my $bigtotal = say_group_sums($oo, $level + 1 );
+            say sprintf "$thisindent   -----";
+            say sprintf "$thisindent   %5d: total $gk", $bigtotal;
+        }
+    }
+    return $sumtotal;
+}    
+
+1;
