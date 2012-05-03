@@ -2,7 +2,7 @@ A time tracking add-on to todo.txt, inspired by [Punch.py](http://code.google.co
 
 # Installation
 
-Put the card `perl` script into your `.todo.actions.d` directory and make it executable.
+Put the `card` perl script into your `.todo.actions.d` directory and make it executable.
 
 # Usage
 
