@@ -2,7 +2,7 @@ A time tracking add-on to todo.txt, inspired by [Punch.py](http://code.google.co
 
 # Installation
 
-Put the `card` perl script into your `.todo.actions.d` directory and make it executable.
+Put the `clock` perl script into your `.todo.actions.d` directory and make it executable.
 
 # Usage
 
@@ -10,12 +10,12 @@ Put the `card` perl script into your `.todo.actions.d` directory and make it exe
      1 Create a clone of Punch.py as a todo.txt add-on
      TODO: 1 added.
      
-     % todo.sh card in 1
-     Carding into 'Create a clone of Punch.py as a todo.txt add-on"
+     % todo.sh clock in 1
+     Clocking into 'Create a clone of Punch.py as a todo.txt add-on"
      
      <work to heart's content>
      
-     % todo.sh card out
-     Carding out of 'Create a clone of Punch.py as a todo.txt add-on'
+     % todo.sh clock out
+     Clocking out of 'Create a clone of Punch.py as a todo.txt add-on'
      
 More to come...

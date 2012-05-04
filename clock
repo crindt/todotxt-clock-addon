@@ -8,9 +8,9 @@ use TryCatch;
 use feature ':5.10';
 
 # general syntax
-#    todo.sh card in <num>   -- start tracking time on item <num>
-#    todo.sh card out        -- stop tracking time (card out of item <num>)
-#    todo.sh card what       -- print the current 'active' task, shortcut 'wh'
+#    todo.sh clock in <num>   -- start tracking time on item <num>
+#    todo.sh clock out        -- stop tracking time (clock out of item <num>)
+#    todo.sh clock what       -- print the current 'active' task, shortcut 'wh'
 #    todo.sh report [--groups=groups] [filters...] -- report time with optionally specified groupings
 
 my $verbose = 0;
@@ -28,9 +28,9 @@ my $cmdname = shift @ARGV || die 'Invalid program state: cmdname not specified';
 my $cmd = shift @ARGV     || pod2usage(1);
 
 
-# get all the card data
-my $cardf = io("$tododir/card.dat");
-my @card = slurp_data(io($cardf), @ARGV);
+# get all the clock data
+my $clockf = io("$tododir/clock.dat");
+my @clock = slurp_data(io($clockf), @ARGV);
 
 my $active = get_active_task();
 
@@ -43,19 +43,19 @@ if ( $cmd =~ /in/ ) {
 
         if ( not $active ) {
             # if we're not active, simply append a new entry
-            cardin( $line );
+            clockin( $line );
 
         } else {
             # we're active
 
             if ( $active->{todotxtline} eq $line->{todotxtline} ) {
                 # already doing requested
-                warn "You are already carded in to $line->{todotxtline}";
+                warn "You are already clocked in to $line->{todotxtline}";
                 
             } else {
-                # card out of active and card in to $line
-                cardout( $active );
-                cardin( $line );
+                # clock out of active and clock in to $line
+                clockout( $active );
+                clockin( $line );
             }
         }
 
@@ -66,7 +66,7 @@ if ( $cmd =~ /in/ ) {
 
 } elsif ( $cmd =~ /out/ ) {
     try {
-        cardout( $active );
+        clockout( $active );
     } catch ( $err ) {
         say "Caught exception punching out:\n\t$err";
         exit(1);
@@ -80,14 +80,14 @@ if ( $cmd =~ /in/ ) {
 } elsif ( $cmd =~ /(report|rep)/ ) {
     # generate a report, optionally using groupings
 
-    # loop over @card, grouping first by date, then by activity
+    # loop over @clock, grouping first by date, then by activity
     my $groups = {};
-    foreach my $c ( @card ) {
+    foreach my $c ( @clock ) {
         my $targ = $groups;
         foreach my $grp ( @groupings ) {
             if ( $grp eq 'indate' ) { 
-                my ($date) = $c->{cardin} =~ /^(\d{8})T\d{6}$/;
-                die "Couldn't identify card-in date for '$c->{todotxtline}'" if not $date;
+                my ($date) = $c->{clockin} =~ /^(\d{8})T\d{6}$/;
+                die "Couldn't identify clock-in date for '$c->{todotxtline}'" if not $date;
                 $targ->{$date} = {} if ( not defined $targ->{$date} );
                 $targ = $targ->{$date};
 
@@ -111,9 +111,9 @@ if ( $cmd =~ /in/ ) {
 }
 
 sub get_active_task() {
-    return undef if not @card;  # nothing in the card file
+    return undef if not @clock;  # nothing in the clock file
 
-    return $card[-1] if not defined( $card[-1]->{cardout} );
+    return $clock[-1] if not defined( $clock[-1]->{clockout} );
 
     return undef;  # not doing anything
 }
@@ -143,8 +143,8 @@ sub parse_task($) {
          $oPri, $pri,
          $oStart, $start,
          $detail,
-         $oCardin, $cardin,
-         $oCardout, $cardout
+         $oClockin, $clockin,
+         $oClockout, $clockout
         ) =
         $task =~ m/^
                    (
@@ -153,8 +153,8 @@ sub parse_task($) {
                    ((\d{4}-\d{2}-\d{2})\s)?          # opt start date
                    (.*?)                             # detail
                    )
-                   (\t(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt card in
-                   (\s(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt card out
+                   (\t(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt clock in
+                   (\s(\d{4}\d{2}\d{2}T\d{2}\d{2}\d{2}))? # opt clock out
                   $/x;
     my $tasko = {
         todotxtline => $todotxtline,
@@ -164,8 +164,8 @@ sub parse_task($) {
     $tasko->{start} = $start if $start;
     $tasko->{end}   = $end if $end;
     $tasko->{pri}   = $pri if $pri;
-    $tasko->{cardin} = $cardin if $cardin;
-    $tasko->{cardout} = $cardout if $cardout;
+    $tasko->{clockin} = $clockin if $clockin;
+    $tasko->{clockout} = $clockout if $clockout;
 
     push @{$tasko->{proj}}, $detail =~ /(\+[^\s]+)/g;
     push @{$tasko->{context}}, $detail =~ /(\@[^\s]+)/g;
@@ -189,33 +189,33 @@ sub get_todo_line {
     return $todo[$lineidx];
 }
 
-sub cardout($) {
+sub clockout($) {
     my ( $activeline ) = shift;
     
-    die "Not currently carded into any task" if not $activeline;
+    die "Not currently clocked into any task" if not $activeline;
     
-    say "Carding out of '$active->{todotxtline}'";
+    say "Clocking out of '$active->{todotxtline}'";
     
-    $cardf << "\t".time2str("%Y%m%dT%H%M%S", time);
+    $clockf << "\t".time2str("%Y%m%dT%H%M%S", time);
 }
 
-sub cardin {
+sub clockin {
     my ( $line ) = shift;
     
-    say "Carding into '$line->{todotxtline}'";
+    say "Clocking into '$line->{todotxtline}'";
     
-    "\n$line->{line}\t".time2str("%Y%m%dT%H%M%S", time) >> $cardf;
+    "\n$line->{line}\t".time2str("%Y%m%dT%H%M%S", time) >> $clockf;
 }
 
 sub spent_time( $ ) {
     my ( $task ) = shift;
 
-    die "Can't compute spent time without a card in" if not $task->{cardin};
+    die "Can't compute spent time without a clock in" if not $task->{clockin};
 
-    my $cardint  = str2time( $task->{cardin} );
-    my $cardoutt = str2time( $task->{cardout} || time2str( "%c", time ) );
+    my $clockint  = str2time( $task->{clockin} );
+    my $clockoutt = str2time( $task->{clockout} || time2str( "%c", time ) );
 
-    return int(($cardoutt - $cardint)/60);  # minutes
+    return int(($clockoutt - $clockint)/60);  # minutes
 }
 
 sub say_group_sums {
