@@ -303,7 +303,7 @@ sub say_group_sums {
                 $total += spent_time( $t );
                 #say sprintf "$thisindent%5d: $t->{todotxtline}", $total;
             }
-            say sprintf "$thisindent%5d: $gk", $total;            
+            say sprintf "$thisindent%3d:%2.2d - $gk", $total/60,$total%60;            
             $sumtotal += $total;
 
         } elsif ( ref $oo eq 'HASH' ) {
@@ -311,7 +311,7 @@ sub say_group_sums {
             say "\n$indent$gk:";
             my $bigtotal = say_group_sums($oo, $level + 1 );
             say sprintf "$thisindent   -----";
-            say sprintf "$thisindent   %5d: total $gk", $bigtotal;
+            say sprintf "$thisindent   %3d:%2.2d - total $gk", $bigtotal/60,$bigtotal%60;
         }
     }
     return $sumtotal;
