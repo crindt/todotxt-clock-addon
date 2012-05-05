@@ -6,15 +6,16 @@ use Date::Format;
 use Date::Parse;
 use TryCatch;
 use feature ':5.10';
+use Pod::Usage;
 
 # general syntax
 #    todo.sh clock in <num>   -- start tracking time on item <num>
 #    todo.sh clock out        -- stop tracking time (clock out of item <num>)
 #    todo.sh clock what       -- print the current 'active' task, shortcut 'wh'
-#    todo.sh report [--groups=groups] [filters...] -- report time with optionally specified groupings
+#    todo.sh report [--groupingss=groupingss] [filters...] -- report time with optionally specified groupings
 
 my $verbose = 0;
-my @groupings = ( 'indate' );  # default
+my @groupings = ( 'indate', 'project' );  # default
 my $res = GetOptions(
     'verbose|v' => sub { $verbose++ },
     'groupings=s' => sub { @groupings = split (/,/, $_[1] ) }
@@ -25,16 +26,42 @@ say "GROUPINGS ARE ".join(", ",@groupings) if $verbose;
 my $tododir = $ENV{'TODO_DIR'} || die "TODOTXT_DIR must be specified on in the environment";
 
 my $cmdname = shift @ARGV || die 'Invalid program state: cmdname not specified';
-my $cmd = shift @ARGV     || pod2usage(1);
 
+# make sure we're called correctly
+my @aliases = ( 'clock', 'cl', 'do' );
+(grep { $cmdname eq $_ } @aliases) || die "Invalid program state: command:'$cmdname' is not one of (".join(", ", @aliases).")";
 
 # get all the clock data
 my $clockf = io("$tododir/clock.dat");
-my @clock = slurp_data(io($clockf), @ARGV);
 
-my $active = get_active_task();
+my @clock = slurp_data(io($clockf));
+my $active = get_active_task(@clock);
 
-if ( $cmd =~ /in/ ) {
+# if the alias is do, we want to override so we can clock out and then pass it on
+if ( $cmdname eq 'do' ) {
+    # allow us to do multiple tasks
+    foreach my $dotask ( @ARGV ) {
+        # find matching task in @todo
+        my $doline = get_todo_line( $dotask );
+
+        if ( ( defined( $doline ) && defined( $active ) ) 
+             && $active->{detail} eq $doline->{detail} ) {
+            clockout( $active );
+        }
+    }
+    # call the original
+    my $cmd = "$ENV{'TODO_SH'} command do ".join(' ',map { "'$_'" } @ARGV);
+    say $cmd if $verbose;
+    system( $cmd );
+    exit( 0 );
+}
+
+
+my $cmd = shift @ARGV     || pod2usage(1);
+
+if ( $cmd eq 'in' ) {
+    # todo.sh clock in <linenum>
+
     my $linenum = shift @ARGV || pod2usage(1);
 
     my $line;
@@ -64,7 +91,16 @@ if ( $cmd =~ /in/ ) {
         exit(1);
     }
 
-} elsif ( $cmd =~ /out/ ) {
+} elsif ( $cmd eq 'out' ) {
+    # todo.sh clock out
+
+    # see if there's anything amiss
+    if ( @ARGV ) {
+        say "Gibberish at the end of the command: '".join(' ',@ARGV)."'";
+        say "Stopping processing...";
+        pod2usage(1);
+    }
+
     try {
         clockout( $active );
     } catch ( $err ) {
@@ -72,6 +108,7 @@ if ( $cmd =~ /in/ ) {
         exit(1);
     }
 } elsif ( $cmd =~ /(what|wh)/ ) {
+
     if ( $active ) {
         say "The active task for ".spent_time($active)." minutes is:\n\t $active->{todotxtline}";
     } else {
@@ -79,6 +116,16 @@ if ( $cmd =~ /in/ ) {
     }
 } elsif ( $cmd =~ /(report|rep)/ ) {
     # generate a report, optionally using groupings
+
+    # apply the cany filters from the command line
+    my @filters = @ARGV;
+    my @subclock =         
+        grep { my $d = $_->{todotxtline};
+               if ( not @filters ) { 1; }
+               else { 
+                   grep { $d =~ /$_/i } @filters;
+               } 
+    } @clock;
 
     # loop over @clock, grouping first by date, then by activity
     my $groups = {};
@@ -110,8 +157,11 @@ if ( $cmd =~ /in/ ) {
     1;
 }
 
-sub get_active_task() {
-    return undef if not @clock;  # nothing in the clock file
+sub get_active_task(@) {
+#    return undef if not @clock;  # nothing in the clock file
+    my @clock = @_;
+
+    return undef if not @clock;
 
     return $clock[-1] if not defined( $clock[-1]->{clockout} );
 
@@ -124,8 +174,13 @@ sub slurp_data {
     die "You must pass an io::file to slurp" if not defined $file;
 
     # read all lines, removing blanks, and return as a list
-    return 
-        map { parse_task( $_ ) }
+    my $cnt = 0;
+    my @data =
+        map { 
+            my $line = $_;
+            say "PARSING TASK LINE: $line" if $verbose>1;
+            parse_task( $line, ++$cnt );
+    }
         grep { my $d = $_;
                if ( not @filters ) { 1; }
                else { 
@@ -133,10 +188,13 @@ sub slurp_data {
                }
         } grep { not /^\s*$/ } 
         $file->chomp->slurp;
+    return @data;
 }
 
-sub parse_task($) {
-    my ( $task ) = shift || die "Must specify task (string) to parse";
+sub parse_task() {
+    my ( $task, $id ) = @_;
+
+    die "Must specify task (string) to parse" if not defined( $task );
 
     my ( $todotxtline,
          $oDone, $oDonetag, $done, $oEnd, $end,
@@ -160,6 +218,7 @@ sub parse_task($) {
         todotxtline => $todotxtline,
         line => $task,
         detail => $detail };
+    $tasko->{id}   = $id if $id;
     $tasko->{done} = $done if $done;
     $tasko->{start} = $start if $start;
     $tasko->{end}   = $end if $end;
@@ -173,6 +232,7 @@ sub parse_task($) {
     return $tasko;
 }
 
+my $todo = undef;
 sub get_todo_line {
     my ( $linenum ) = @_;
 
@@ -180,13 +240,16 @@ sub get_todo_line {
     die "No line number passed to get_todo_line"
         if ( not defined $linenum );
 
-    my @todo = slurp_data(io("$tododir/todo.txt"), @ARGV);
+    if ( not defined $todo ) {
+        my @t = slurp_data(io("$tododir/todo.txt"));
+        $todo = \@t;
+    }
 
     my $lineidx = $linenum - 1;
-    die "Specified line number $linenum is out of range [1..".scalar(@todo)."]"
-        if ( $lineidx < 0 || $lineidx >= scalar( @todo ) );
+    die "Specified line number $linenum is out of range [1..".scalar(@{$todo})."]"
+        if ( $lineidx < 0 || $lineidx >= scalar( @{$todo} ) );
     
-    return $todo[$lineidx];
+    return $todo->[$lineidx];
 }
 
 sub clockout($) {
@@ -255,3 +318,42 @@ sub say_group_sums {
 }    
 
 1;
+
+
+=head1 NAME
+
+todo.sh clock - Using the clock add-on for todo.sh
+
+=head1 SYNOPSIS
+
+todo.sh clock [command [command options] [command arguments]]
+
+ Global Options:
+   -v		  verbose
+
+ Commands:
+
+   in <linenum>	  Clock in to the task associated with 
+                      <linenum>.  Clocking out of the active
+                      task if necessary.
+   out            Clock out of the current task (if any)
+   what|wh        Show what the current task is (if any)
+   report|rep [--groupings=[indate],[project]]
+                  Report time recorded for each task in the clock.dat file
+
+=head1 GLOBAL OPTIONS
+
+=over 8
+
+=item B<-v>
+
+Show what is being done.
+
+=back
+
+=head1 DESCRIPTION
+
+The B<clock> add-on for B<todo.sh> will keep track of the time spent in
+performing each task.
+
+=cut
