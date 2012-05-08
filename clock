@@ -12,10 +12,12 @@ use Pod::Usage;
 #    todo.sh clock in <num>   -- start tracking time on item <num>
 #    todo.sh clock out        -- stop tracking time (clock out of item <num>)
 #    todo.sh clock what       -- print the current 'active' task, shortcut 'wh'
-#    todo.sh report [--groupingss=groupingss] [filters...] -- report time with optionally specified groupings
+#    todo.sh report [--groupings=groupings] [filters...] -- report time with optionally specified groupings
 
 my $verbose = 0;
-my @groupings = ( 'indate', 'project' );  # default
+my @groupings = split(/\s*,\s*/, $ENV{'TODOTXT_CLOCK_GROUPINGS'} );
+@groupings = ( 'indate', 'project' ) if not @groupings;  # default
+
 my $res = GetOptions(
     'verbose|v' => sub { $verbose++ },
     'groupings=s' => sub { @groupings = split (/,/, $_[1] ) }
