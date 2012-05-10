@@ -12,10 +12,12 @@ use Pod::Usage;
 #    todo.sh clock in <num>   -- start tracking time on item <num>
 #    todo.sh clock out        -- stop tracking time (clock out of item <num>)
 #    todo.sh clock what       -- print the current 'active' task, shortcut 'wh'
-#    todo.sh report [--groupingss=groupingss] [filters...] -- report time with optionally specified groupings
+#    todo.sh report [--groupings=groupings] [filters...] -- report time with optionally specified groupings
 
 my $verbose = 0;
-my @groupings = ( 'indate', 'project' );  # default
+my @groupings = split(/\s*,\s*/, $ENV{'TODOTXT_CLOCK_GROUPINGS'} );
+@groupings = ( 'indate', 'project' ) if not @groupings;  # default
+
 my $res = GetOptions(
     'verbose|v' => sub { $verbose++ },
     'groupings=s' => sub { @groupings = split (/,/, $_[1] ) }
@@ -138,8 +140,18 @@ if ( $cmd eq 'in' ) {
                 $targ->{$date} = {} if ( not defined $targ->{$date} );
                 $targ = $targ->{$date};
 
-            } elsif ( $grp eq 'project' ) {
-                my ($prj) = grep { $_ =~ /(\+p\/[^\s]+)/i } @{$c->{proj}};
+            } elsif ( $grp =~ /^project/ ) {
+                my ( $null, $depth ) = split(/:/,$grp);
+                my $prj;
+                if ( $depth > 0 ) {
+                    # take project to level $depth as group
+                    ($prj) = grep { $_ =~ /(\+p(\/[^\s\/]+){$depth})/i } @{$c->{proj}};
+                    $prj =~ s/(\+p(\/[^\s\/]+){$depth}).*/\1/g;
+                    1;
+                } else {
+                    # take full project as group
+                    ($prj) = grep { $_ =~ /(\+p\/[^\s]+)/i } @{$c->{proj}};
+                }
                 $prj = '<unknown>' if ( not defined $prj );
 
                 $prj = lc($prj);
@@ -285,8 +297,8 @@ sub say_group_sums {
     my ( $o, $level ) = ( shift, shift || 0 );
     #my $thisindent = $indent . '   ';
     my $indent;
-    foreach my $l ( 1..$level ) { $indent .= '   ' };
-    my $thisindent = $indent . '   ';
+    foreach my $l ( 1..$level ) { $indent .= '     ' };
+    my $thisindent = $indent . '     ';
 
 
     die "Groups to summarize not stored as hash" if ref $o ne 'HASH';
@@ -303,15 +315,17 @@ sub say_group_sums {
                 $total += spent_time( $t );
                 #say sprintf "$thisindent%5d: $t->{todotxtline}", $total;
             }
-            say sprintf "$thisindent%5d: $gk", $total;            
+            say sprintf "$indent%3d:%2.2d - $gk", $total/60,$total%60;            
             $sumtotal += $total;
 
         } elsif ( ref $oo eq 'HASH' ) {
             # we have a subgrouping
             say "\n$indent$gk:";
-            my $bigtotal = say_group_sums($oo, $level + 1 );
-            say sprintf "$thisindent   -----";
-            say sprintf "$thisindent   %5d: total $gk", $bigtotal;
+            my $string;
+            my $bigtotal = say_group_sums($oo, $level + 1, $string );
+            say sprintf "$thisindent -----";
+            say sprintf "$thisindent%3d:%2.2d - total $gk", $bigtotal/60,$bigtotal%60;
+            $sumtotal += $bigtotal;
         }
     }
     return $sumtotal;
