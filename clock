@@ -164,7 +164,13 @@ if ( $cmd eq 'in' ) {
         push @{$targ->{$c->{todotxtline}}}, $c;
     }
 
-    say_group_sums( $groups );
+    my ($tot,@lines) = say_group_sums( $groups );
+
+    say join("\n", @lines);
+
+    say sprintf "------";
+    say sprintf "%3d:%2.2d - grand total", $tot/60,$tot%60;
+
 
     1;
 }
@@ -297,14 +303,15 @@ sub say_group_sums {
     my ( $o, $level ) = ( shift, shift || 0 );
     #my $thisindent = $indent . '   ';
     my $indent;
-    foreach my $l ( 1..$level ) { $indent .= '     ' };
-    my $thisindent = $indent . '     ';
+    foreach my $l ( 1..$level ) { $indent .= "\t" };
+    my $thisindent = $indent . "\t";
 
 
     die "Groups to summarize not stored as hash" if ref $o ne 'HASH';
 
     my $sumtotal = 0;
     my $total = 0;
+    my @lines = ();
     foreach my $gk ( sort { $a <=> $b } keys %{$o} ) {
         my $oo = $o->{$gk};
 #        print STDERR "PROCESSING KEY $gk\n";
@@ -315,20 +322,21 @@ sub say_group_sums {
                 $total += spent_time( $t );
                 #say sprintf "$thisindent%5d: $t->{todotxtline}", $total;
             }
-            say sprintf "$indent%3d:%2.2d - $gk", $total/60,$total%60;            
+            push @lines, sprintf "$indent%3d:%2.2d - $gk", $total/60,$total%60;            
             $sumtotal += $total;
 
         } elsif ( ref $oo eq 'HASH' ) {
             # we have a subgrouping
-            say "\n$indent$gk:";
             my $string;
-            my $bigtotal = say_group_sums($oo, $level + 1, $string );
-            say sprintf "$thisindent -----";
-            say sprintf "$thisindent%3d:%2.2d - total $gk", $bigtotal/60,$bigtotal%60;
+            my ( $bigtotal, @inlines ) = say_group_sums($oo, $level + 1, $string );
+            push @lines, sprintf "\n$indent%3d:%2.2d - $gk:", $bigtotal/60,$bigtotal%60;
+            push @lines, @inlines;
+            push @lines, sprintf "$thisindent------";
+            push @lines, sprintf "$thisindent%3d:%2.2d - total $gk", $bigtotal/60,$bigtotal%60;
             $sumtotal += $bigtotal;
         }
     }
-    return $sumtotal;
+    return ( $sumtotal, @lines );
 }    
 
 1;
