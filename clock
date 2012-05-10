@@ -14,11 +14,15 @@ use Pod::Usage;
 #    todo.sh clock what       -- print the current 'active' task, shortcut 'wh'
 #    todo.sh report [--groupings=groupings] [filters...] -- report time with optionally specified groupings
 
+my $help;
 my $verbose = 0;
 my @groupings = split(/\s*,\s*/, $ENV{'TODOTXT_CLOCK_GROUPINGS'} );
 @groupings = ( 'indate', 'project' ) if not @groupings;  # default
 
+my $defaultaction = $ENV{'TODOTXT_CLOCK_DEFAULT_ACTION'} || 'what';
+
 my $res = GetOptions(
+    'help|h' => \$help,
     'verbose|v' => sub { $verbose++ },
     'groupings=s' => sub { @groupings = split (/,/, $_[1] ) }
     );
@@ -58,6 +62,10 @@ if ( $cmdname eq 'do' ) {
     exit( 0 );
 }
 
+pod2usage(1) if $help;
+
+# add the default action
+push @ARGV, $defaultaction if not @ARGV;
 
 my $cmd = shift @ARGV     || pod2usage(1);
 
