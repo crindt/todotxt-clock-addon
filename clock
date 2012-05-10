@@ -74,6 +74,25 @@ if ( $cmd eq 'in' ) {
 
     my $linenum = shift @ARGV || pod2usage(1);
 
+    if ( ! ($linenum =~ /\d+/) ) {
+        # linenum is not a line!  Assume it's a new task to add
+
+        my $cmd = "$ENV{'TODO_SH'} command add '".$linenum."'";
+        @lines = io($cmd."|")->chomp->getlines;
+        
+        my @res = map { $_ =~ /^TODO:\s*(\d+)\s+added/ } @lines;
+
+        if ( @res == 1 && $res[0] =~ /^\d+$/) {
+            # worked, now set the line num
+            say join("\n", @lines);
+            $linenum = $res[0];
+            
+        } else {
+            # Something is amiss
+            die "Something happened when trying to create a new task\n\t".join( "\n\t", @lines );
+        }
+    }
+
     my $line;
     try {
         $line = get_todo_line($linenum);
