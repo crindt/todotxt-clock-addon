@@ -74,10 +74,14 @@ if ( $cmd eq 'in' ) {
 
     my $linenum = shift @ARGV || pod2usage(1);
 
-    if ( ! ($linenum =~ /\d+/) ) {
+    if ( ! ($linenum =~ /^\d+$/) ) {
         # linenum is not a line!  Assume it's a new task to add
 
-        my $cmd = "$ENV{'TODO_SH'} command add '".$linenum."'";
+        # Escape single quotes
+        $linenum =~ s/"/\\"/g;
+
+        my $cmd = "$ENV{'TODO_SH'} command add \"".$linenum."\"";
+        say $cmd if $verbose;
         @lines = io($cmd."|")->chomp->getlines;
         
         my @res = map { $_ =~ /^TODO:\s*(\d+)\s+added/ } @lines;
