@@ -4,6 +4,7 @@ use Getopt::Long;
 use IO::All;
 use Date::Format;
 use Date::Parse;
+use Date::Simple('date');
 use TryCatch;
 use feature ':5.10';
 use Pod::Usage;
@@ -162,11 +163,17 @@ if ( $cmd eq 'in' ) {
 
     # loop over @clock, grouping first by date, then by activity
     my $groups = {};
+    my $firstdate;
+    my $lastdate;
     foreach my $c ( @clock ) {
         my $targ = $groups;
         foreach my $grp ( @groupings ) {
+            my ($date) = $c->{clockin} =~ /^(\d{8})T\d{6}$/;
+
+            $firstdate = $date if ( !defined( $firstdate ) || $date < $firstdate );
+            $lastdate = $date if ( !defined( $lastdate ) || $date > $lastdate );
+
             if ( $grp eq 'indate' ) { 
-                my ($date) = $c->{clockin} =~ /^(\d{8})T\d{6}$/;
                 die "Couldn't identify clock-in date for '$c->{todotxtline}'" if not $date;
                 $targ->{$date} = {} if ( not defined $targ->{$date} );
                 $targ = $targ->{$date};
@@ -199,8 +206,12 @@ if ( $cmd eq 'in' ) {
 
     say join("\n", @lines);
 
+    my $daysdiff = date($lastdate)-date($firstdate);
+
+    my $minswk = $tot/($daysdiff/7);
+
     say sprintf "------";
-    say sprintf "%3d:%2.2d - grand total", $tot/60,$tot%60;
+    say sprintf "%3d:%2.2d - grand total since $firstdate (%d:%2.2d hrs/wk)", $tot/60,$tot%60,$minswk/60,$minswk%60;
 
 
     1;
