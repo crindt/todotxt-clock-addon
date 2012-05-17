@@ -165,7 +165,7 @@ if ( $cmd eq 'in' ) {
     my $groups = {};
     my $firstdate;
     my $lastdate;
-    foreach my $c ( @clock ) {
+    foreach my $c ( @subclock ) {
         my $targ = $groups;
         foreach my $grp ( @groupings ) {
             my ($date) = $c->{clockin} =~ /^(\d{8})T\d{6}$/;
